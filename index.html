@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HTT Wallet - wallet.htttoken.eth</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <link rel="icon" type="image/png" href="htt-logo.png">
+</head>
+<body class="bg-white text-gray-800 font-sans">
+  <!-- Header -->
+  <header class="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white p-4 shadow-md">
+    <div class="max-w-6xl mx-auto flex justify-between items-center">
+      <div class="text-xl font-bold flex items-center space-x-3">
+        <img src="htt-logo.png" alt="HTT Logo" class="w-8 h-8 rounded-full">
+        <span>HTT Wallet</span>
+      </div>
+      <div>
+        <button id="connectWallet" class="bg-white text-indigo-600 px-4 py-2 rounded-xl font-semibold shadow">Connect Wallet</button>
+        <span id="walletAddress" class="ml-4 hidden"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="max-w-6xl mx-auto p-6">
+    <h2 class="text-2xl font-semibold mb-4">Welcome to Your HTT Wallet Dashboard</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="bg-gray-100 p-4 rounded-xl shadow">
+        <p class="text-lg font-medium">HTT Balance:</p>
+        <p id="httBalance" class="text-3xl font-bold">0 HTT</p>
+        <p id="usdValue" class="text-gray-500">~ $0.00</p>
+        <button onclick="addHTTToMetaMask()" class="mt-4 bg-purple-600 text-white px-4 py-2 rounded-xl">
+          ➕ Add HTT to MetaMask
+        </button>
+      </div>
+      <div class="flex space-x-4 items-center">
+        <button id="sendHTT" class="bg-indigo-600 text-white px-4 py-2 rounded-xl">Send HTT</button>
+        <button id="receiveHTT" class="bg-green-600 text-white px-4 py-2 rounded-xl">Receive HTT</button>
+      </div>
+    </div>
+    <div id="sendReceiveForm" class="mt-6 hidden">
+      <div class="bg-white p-4 rounded-xl shadow mb-4">
+        <h4 class="text-lg font-semibold mb-2">Send HTT</h4>
+        <input id="recipientAddress" type="text" placeholder="Recipient Address" class="border p-2 w-full rounded mb-2">
+        <input id="sendAmount" type="number" placeholder="Amount" class="border p-2 w-full rounded mb-2">
+        <button class="bg-indigo-600 text-white px-4 py-2 rounded-xl" onclick="sendHTTTransaction()">Send</button>
+      </div>
+      <div class="bg-white p-4 rounded-xl shadow">
+        <h4 class="text-lg font-semibold mb-2">Receive HTT</h4>
+        <p class="text-gray-700 mb-1">Your Wallet Address:</p>
+        <input id="receiveAddress" readonly class="border p-2 w-full rounded" value="" />
+        <p class="text-xs text-gray-500 mt-1">You can share this address to receive HTT.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Transaction History -->
+  <section class="max-w-6xl mx-auto p-6">
+    <div class="bg-white shadow p-4 rounded-xl">
+      <h3 class="text-xl font-semibold mb-2">Transaction History</h3>
+      <ul id="txHistory" class="text-gray-700 list-disc pl-6"></ul>
+    </div>
+  </section>
+
+  <script>
+    const HTT_TOKEN_ADDRESS = "0xYourHTTTokenContractAddress"; // Replace with actual HTT contract address
+    const ERC20_ABI = [
+      "function transfer(address to, uint256 amount) external returns (bool)",
+      "function decimals() view returns (uint8)",
+      "function balanceOf(address owner) view returns (uint256)",
+      "event Transfer(address indexed from, address indexed to, uint256 value)"
+    ];
+
+    const connectWalletBtn = document.getElementById('connectWallet');
+    const walletAddressSpan = document.getElementById('walletAddress');
+    const httBalanceEl = document.getElementById('httBalance');
+    const usdValueEl = document.getElementById('usdValue');
+    const sendHTTBtn = document.getElementById('sendHTT');
+    const receiveHTTBtn = document.getElementById('receiveHTT');
+    const sendReceiveForm = document.getElementById('sendReceiveForm');
+    const receiveAddressInput = document.getElementById('receiveAddress');
+    const txHistoryEl = document.getElementById('txHistory');
+
+    let signer;
+    let userAddress;
+
+    connectWalletBtn.onclick = async () => {
+      if (typeof window.ethereum !== 'undefined') {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        signer = provider.getSigner();
+        userAddress = await signer.getAddress();
+        walletAddressSpan.innerText = `Connected: ${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`;
+        walletAddressSpan.classList.remove('hidden');
+        connectWalletBtn.classList.add('hidden');
+        receiveAddressInput.value = userAddress;
+
+        const HTTContract = new ethers.Contract(HTT_TOKEN_ADDRESS, ERC20_ABI, provider);
+        const decimals = await HTTContract.decimals();
+        const rawBalance = await HTTContract.balanceOf(userAddress);
+        const formattedBalance = ethers.utils.formatUnits(rawBalance, decimals);
+
+        httBalanceEl.innerText = `${formattedBalance} HTT`;
+        usdValueEl.innerText = `~ $${(parseFloat(formattedBalance) * 19).toFixed(2)}`;
+
+        const filter = HTTContract.filters.Transfer(null, userAddress);
+        const events = await HTTContract.queryFilter(filter, -10000);
+
+        events.reverse().forEach(event => {
+          const from = event.args.from;
+          const amount = ethers.utils.formatUnits(event.args.value, decimals);
+          const li = document.createElement('li');
+          li.textContent = `Received ${amount} HTT from ${from.slice(0, 6)}...${from.slice(-4)}`;
+          txHistoryEl.appendChild(li);
+        });
+      } else {
+        alert('Please install MetaMask.');
+      }
+    };
+
+    sendHTTBtn.onclick = () => {
+      sendReceiveForm.classList.remove('hidden');
+    };
+
+    receiveHTTBtn.onclick = () => {
+      sendReceiveForm.classList.remove('hidden');
+    };
+
+    async function sendHTTTransaction() {
+      const recipient = document.getElementById('recipientAddress').value;
+      const amount = document.getElementById('sendAmount').value;
+
+      if (!recipient || !amount || !signer) {
+        alert('Please connect wallet and fill in recipient + amount.');
+        return;
+      }
+
+      try {
+        const HTTContract = new ethers.Contract(HTT_TOKEN_ADDRESS, ERC20_ABI, signer);
+        const decimals = await HTTContract.decimals();
+        const parsedAmount = ethers.utils.parseUnits(amount, decimals);
+
+        const tx = await HTTContract.transfer(recipient, parsedAmount);
+        await tx.wait();
+
+        alert(`✅ Sent ${amount} HTT to ${recipient}`);
+      } catch (error) {
+        console.error(error);
+        alert(`❌ Failed to send HTT: ${error.message}`);
+      }
+    }
+
+    async function addHTTToMetaMask() {
+      try {
+        const wasAdded = await window.ethereum.request({
+          method: 'wallet_watchAsset',
+          params: {
+            type: 'ERC20',
+            options: {
+              address: HTT_TOKEN_ADDRESS,
+              symbol: 'HTT',
+              decimals: 18,
+              image: 'https://yourdomain.com/htt-logo.png'
+            },
+          },
+        });
+        if (wasAdded) {
+          alert('✅ HTT has been added to MetaMask!');
+        } else {
+          alert('❌ User rejected token addition.');
+        }
+      } catch (error) {
+        console.error(error);
+        alert('⚠️ Error adding token to MetaMask');
+      }
+    }
+  </script>
+</body>
+</html>
